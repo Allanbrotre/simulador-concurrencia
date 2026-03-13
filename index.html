@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Simulador de Concurrencia - Restaurante</title>
+  <title>Simulador de Concurrencia - Restaurante Thread Palace</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
   <style>
     body {
@@ -12,162 +12,255 @@
       justify-content: center;
       align-items: center;
       height: 100vh;
-      background-color: #1a1a1a;
+      background-color: #121212;
       font-family: sans-serif;
     }
     canvas {
-      box-shadow: 0px 10px 30px rgba(0,0,0,0.8);
+      box-shadow: 0px 10px 40px rgba(0,0,0,0.9);
       border-radius: 10px;
     }
   </style>
 </head>
 <body>
   <script>
-    // --- TRADUCCIÓN DE TU CÓDIGO A JAVASCRIPT (p5.js) ---
-    
-    let mode = 1; 
+    // =========================================================
+    // VARIABLES GLOBALES
+    // =========================================================
+    let mode = 1;
     let threads = [];
-    let resource_pos;
+    let running = true;
 
+    let resource_pos;
+    let waiting_spots = [];
+    let vip_spot;
+    let bar_spot;
+    let table_spots = [];
+
+    let bg_pulse = 0;
+
+    // =========================================================
+    // CLASE PRINCIPAL
+    // =========================================================
     class SimulatedThread {
       constructor(id) {
         this.id = id;
-        this.startX = random(50, 150);
-        this.startY = random(50, 450);
+        this.startX = random(70, 220);
+        this.startY = random(140, height - 100);
         this.x = this.startX;
         this.y = this.startY;
-        this.state = "SEEKING"; 
-        this.speed = random(2.0, 4.0);
+        this.state = "SEEKING";
+        this.speed = random(2.0, 3.8);
         this.work_time = 0;
+        this.table_index = -1;
+        this.deadlock_angle = random(0, TWO_PI);
+      }
+
+      reset() {
+        this.x = this.startX;
+        this.y = this.startY;
+        this.state = "SEEKING";
+        this.work_time = 0;
+        this.table_index = -1;
+      }
+
+      move_towards(tx, ty, threshold) {
+        let dx = tx - this.x;
+        let dy = ty - this.y;
+        let d = dist(this.x, this.y, tx, ty);
+
+        if (d > threshold && d !== 0) {
+          this.x += (dx / d) * this.speed;
+          this.y += (dy / d) * this.speed;
+          return false;
+        }
+        return true;
       }
 
       update() {
-        let target_x = resource_pos.x;
-        let target_y = resource_pos.y;
-        
         if (this.state === "SEEKING") {
-          let dx = target_x - this.x;
-          let dy = target_y - this.y;
-          let d = dist(this.x, this.y, target_x, target_y);
-          
-          if (d > 75) { 
-            this.x += (dx / d) * this.speed;
-            this.y += (dy / d) * this.speed;
-          } else {
+          let spot = waiting_spots[(this.id - 1) % waiting_spots.length];
+          let reached = this.move_towards(spot.x, spot.y, 8);
+          if (reached) {
             this.state = "WAITING";
           }
-        } else if (this.state === "CRITICAL") {
+        } 
+        else if (this.state === "WAITING") {
+          if (mode === 4) { // Lógica visual del Deadlock
+            this.deadlock_angle += 0.25;
+            this.x += cos(this.deadlock_angle) * 2;
+            this.y += sin(this.deadlock_angle) * 2;
+          }
+        } 
+        else if (this.state === "CRITICAL") {
           this.work_time -= 1;
           if (this.work_time <= 0) {
             this.state = "DONE";
+            this.table_index = -1;
           }
-        } else if (this.state === "DONE") {
-          let dx = this.startX - this.x;
-          let dy = this.startY - this.y;
-          let d = dist(this.x, this.y, this.startX, this.startY);
-          
-          if (d > 10) {
-            this.x += (dx / d) * this.speed;
-            this.y += (dy / d) * this.speed;
-          } else {
-            this.state = "SEEKING"; 
+        } 
+        else if (this.state === "DONE") {
+          let reached_home = this.move_towards(this.startX, this.startY, 12);
+          if (reached_home) {
+            this.state = "SEEKING";
           }
         }
       }
 
       display() {
-        let c;
-        if (this.state === "SEEKING") {
-          c = color(50, 150, 255);
-        } else if (this.state === "WAITING") {
-          c = color(255, 200, 50);
-        } else if (this.state === "CRITICAL") {
-          c = color(50, 200, 50);
+        let px = this.x;
+        let py = this.y;
+        let st = this.state;
+        let c1, c2;
+
+        if (st === "SEEKING") {
+          c1 = color(70, 170, 255);
+          c2 = color(20, 90, 200);
+        } else if (st === "WAITING") {
+          c1 = color(255, 210, 70);
+          c2 = color(220, 150, 20);
+        } else if (st === "CRITICAL") {
+          c1 = color(80, 230, 120);
+          c2 = color(30, 150, 70);
         } else {
-          c = color(150, 150, 150);
+          c1 = color(180, 180, 180);
+          c2 = color(110, 110, 110);
         }
 
-        stroke(0);
-        strokeWeight(this.state === "CRITICAL" ? 2 : 1);
-        fill(c);
-        
-        ellipse(this.x, this.y - 15, 20, 20);
-        line(this.x, this.y - 5, this.x, this.y + 15);
-        line(this.x - 10, this.y + 5, this.x + 10, this.y + 5);
-        line(this.x, this.y + 15, this.x - 10, this.y + 25);
-        line(this.x, this.y + 15, this.x + 10, this.y + 25);
-        
+        noStroke();
+        fill(0, 60);
+        ellipse(px, py + 28, 26, 10);
+
+        stroke(20);
+        strokeWeight(2);
+
+        fill(c1);
+        ellipse(px, py - 18, 22, 22);
+
+        fill(c2);
+        rectMode(CENTER);
+        rect(px, py + 2, 18, 26, 6);
+
+        line(px, py + 15, px - 10, py + 30);
+        line(px, py + 15, px + 10, py + 30);
+        line(px - 12, py + 2, px + 12, py + 2);
+
+        if (st === "CRITICAL") {
+          noStroke();
+          fill(255, 240, 180);
+          ellipse(px + 14, py - 3, 10, 10);
+          fill(255, 100, 100);
+          ellipse(px + 14, py - 3, 4, 4);
+        }
+
         fill(255);
-        textSize(12);
         textAlign(CENTER, BOTTOM);
-        text("Cliente " + this.id, this.x, this.y - 28);
+        textSize(12);
+        text("Cliente " + this.id, px, py - 32);
       }
     }
 
+    // =========================================================
+    // GESTOR DE SINCRONIZACIÓN (Sustituye a los Locks de Python)
+    // =========================================================
+    function gestionar_sincronizacion() {
+      let in_critical = threads.filter(t => t.state === "CRITICAL");
+      let waiting = threads.filter(t => t.state === "WAITING");
+
+      if (mode === 1) { // MUTEX
+        if (in_critical.length < 1 && waiting.length > 0) {
+          let w = waiting[0];
+          w.state = "CRITICAL";
+          w.work_time = 110;
+          w.table_index = 0;
+          w.x = table_spots[0].x;
+          w.y = table_spots[0].y;
+        }
+      } 
+      else if (mode === 2) { // RACE CONDITION
+        for (let w of waiting) {
+          w.state = "CRITICAL";
+          w.work_time = 90;
+          w.x = resource_pos.x + random(-90, 90);
+          w.y = resource_pos.y + random(-70, 70);
+        }
+      } 
+      else if (mode === 3) { // SEMAPHORE
+        while (threads.filter(t => t.state === "CRITICAL").length < 2 && waiting.length > 0) {
+          let w = waiting[0];
+          w.state = "CRITICAL";
+          w.work_time = 120;
+          
+          let current_crit = threads.filter(t => t.state === "CRITICAL");
+          let table_1_occupied = current_crit.some(t => t.table_index === 1);
+          
+          if (!table_1_occupied) {
+            w.table_index = 1;
+            w.x = table_spots[1].x;
+            w.y = table_spots[1].y;
+          } else {
+            w.table_index = 2;
+            w.x = table_spots[2].x;
+            w.y = table_spots[2].y;
+          }
+          waiting = threads.filter(t => t.state === "WAITING");
+        }
+      } 
+      // MODO 4 (DEADLOCK) se maneja en el método update() del hilo
+      else if (mode === 5) { // MONITOR
+        if (in_critical.length < 1 && waiting.length > 0) {
+          let w = waiting[0];
+          w.state = "CRITICAL";
+          w.work_time = 120;
+          if (random() < 0.5) {
+            w.x = vip_spot.x;
+            w.y = vip_spot.y;
+          } else {
+            w.x = bar_spot.x;
+            w.y = bar_spot.y;
+          }
+        }
+      }
+    }
+
+    // =========================================================
+    // SETUP / DRAW
+    // =========================================================
     function setup() {
-      createCanvas(900, 500);
-      resource_pos = createVector(450, 250);
+      // Ajustamos a una resolución web estándar (tu código Python usaba fullScreen)
+      createCanvas(1100, 650);
+      frameRate(60);
+
+      resource_pos = createVector(width * 0.63, height * 0.52);
+
+      waiting_spots = [
+        createVector(width * 0.40, height * 0.36),
+        createVector(width * 0.40, height * 0.46),
+        createVector(width * 0.40, height * 0.56),
+        createVector(width * 0.40, height * 0.66)
+      ];
+
+      table_spots = [
+        createVector(width * 0.60, height * 0.50),  // mutex
+        createVector(width * 0.56, height * 0.45),  // sem 1
+        createVector(width * 0.70, height * 0.59)   // sem 2
+      ];
+
+      vip_spot = createVector(width * 0.56, height * 0.42);
+      bar_spot = createVector(width * 0.71, height * 0.42);
+
       for (let i = 1; i <= 4; i++) {
         threads.push(new SimulatedThread(i));
       }
     }
 
     function draw() {
-      background(139, 69, 19); 
-      
-      fill(255);
-      textSize(18);
-      textAlign(LEFT, TOP);
-      text("Simulacion de Restaurante y Concurrencia", 20, 20);
-      textSize(12);
-      text("Teclas: 1(Mutex) | 2(Race Cond) | 3(Semaforo) | 4(Deadlock) | 5(Monitor)", 20, 50);
-      
-      rectMode(CENTER);
-      
-      fill(100, 50, 20);
-      rect(resource_pos.x, resource_pos.y, 180, 180, 10);
-      
-      if (mode === 2) {
-        fill(200, 80, 80); 
-      } else if (mode === 5) {
-        fill(220, 200, 180); 
-      } else {
-        fill(200, 180, 150); 
-      }
-        
-      rect(resource_pos.x, resource_pos.y, 160, 160, 5);
-      
-      fill(0);
-      textAlign(CENTER, CENTER);
-      
-      if (mode === 5) {
-        text("RESTAURANTE\n(Monitor)", resource_pos.x, resource_pos.y - 60);
-        fill(150, 100, 50);
-        rect(resource_pos.x, resource_pos.y - 15, 120, 25);
-        rect(resource_pos.x, resource_pos.y + 20, 120, 25);
-        fill(255);
-        text("Mesa VIP()", resource_pos.x, resource_pos.y - 15);
-        text("Barra()", resource_pos.x, resource_pos.y + 20);
-      } else {
-        text("RESTAURANTE\n[Zona de Servicio]", resource_pos.x, resource_pos.y - 50);
-        fill(139, 69, 19);
-        ellipse(resource_pos.x, resource_pos.y + 20, 80, 60);
-        fill(255);
-        text("Mesas", resource_pos.x, resource_pos.y + 20);
-      }
-      
-      let modos_nombres = {
-        1: "MUTEX (1 cliente a la vez)", 
-        2: "RACE CONDITION (Caos en el restaurante)", 
-        3: "SEMAFORO (Limite de 2 mesas)", 
-        4: "DEADLOCK (Clientes bloqueando la entrada)",
-        5: "MONITOR (Areas exclusivas)"
-      };
-      
-      fill(255, 255, 100);
-      textSize(14);
-      textAlign(LEFT, TOP);
-      text("Modo Actual: " + modos_nombres[mode], 20, 80);
+      bg_pulse += 0.04;
+
+      draw_background();
+      draw_restaurant();
+      draw_waiting_area();
+      draw_info_panel();
+      draw_legend();
 
       gestionar_sincronizacion();
 
@@ -177,65 +270,240 @@
       }
     }
 
-    function gestionar_sincronizacion() {
-      let in_critical = threads.filter(t => t.state === "CRITICAL");
-      let waiting = threads.filter(t => t.state === "WAITING");
-      
-      if (mode === 1) { 
-        if (in_critical.length < 1 && waiting.length > 0) {
-          let w = waiting[0];
-          w.state = "CRITICAL";
-          w.work_time = 80;
-          w.x = resource_pos.x;
-          w.y = resource_pos.y + 20;
-        }
-      } else if (mode === 2) { 
-        for (let w of waiting) {
-          w.state = "CRITICAL";
-          w.work_time = 80;
-          w.x = resource_pos.x + random(-30, 30); 
-          w.y = resource_pos.y + 20 + random(-20, 20);
-        }
-      } else if (mode === 3) { 
-        while (threads.filter(t => t.state === "CRITICAL").length < 2 && waiting.length > 0) {
-          let w = waiting[0];
-          w.state = "CRITICAL";
-          w.work_time = 100;
-          if (threads.filter(t => t.state === "CRITICAL").length === 1) { 
-            w.x = resource_pos.x - 30;
-          } else { 
-            w.x = resource_pos.x + 30;
-          }
-          w.y = resource_pos.y + 20;
-          waiting = threads.filter(t => t.state === "WAITING"); 
-        }
-      } else if (mode === 4) { 
-        for (let w of waiting) {
-          w.x += random(-3, 3);
-          w.y += random(-3, 3);
-        }
-      } else if (mode === 5) { 
-        if (in_critical.length < 1 && waiting.length > 0) {
-          let w = waiting[0];
-          w.state = "CRITICAL";
-          w.work_time = 100;
-          w.x = resource_pos.x;
-          if (random(1) < 0.5) {
-            w.y = resource_pos.y - 15;
-          } else {
-            w.y = resource_pos.y + 20;
-          }
-        }
+    // =========================================================
+    // DIBUJO DEL ENTORNO
+    // =========================================================
+    function draw_background() {
+      let top_col = color(28, 28, 38);
+      let bottom_col = color(12, 12, 18);
+
+      for (let y = 0; y < height; y++) {
+        let amt = y / height;
+        let c = lerpColor(top_col, bottom_col, amt);
+        stroke(c);
+        line(0, y, width, y);
+      }
+
+      noStroke();
+
+      let floor_y = height * 0.78;
+      fill(86, 54, 34);
+      rectMode(CORNER);
+      rect(0, floor_y, width, height - floor_y);
+
+      stroke(120, 80, 50, 100);
+      for (let x = 0; x < width; x += 36) {
+        line(x, floor_y, x, height);
+      }
+
+      fill(255, 180, 80, 22 + parseInt(8 * sin(bg_pulse)));
+      ellipse(width * 0.60, height * 0.18, 280, 120);
+    }
+
+    function draw_restaurant() {
+      let rx = width * 0.46;
+      let ry = height * 0.20;
+      let rw = width * 0.38;
+      let rh = height * 0.52;
+
+      noStroke();
+      fill(70, 40, 28);
+      rectMode(CORNER);
+      rect(rx, ry, rw, rh, 25);
+
+      fill(230, 220, 205);
+      rect(rx + 20, ry + 20, rw - 40, rh - 40, 18);
+
+      fill(30, 20, 20);
+      rect(rx + 90, ry - 50, rw - 180, 50, 12);
+      fill(255, 210, 80);
+      textAlign(CENTER, CENTER);
+      textSize(22);
+      text("RESTAURANTE THREAD PALACE", rx + rw / 2, ry - 25);
+
+      fill(50, 30, 20);
+      rect(rx - 5, ry + rh - 80, 30, 70, 8);
+      rect(rx + rw - 25, ry + rh - 80, 30, 70, 8);
+      fill(25, 18, 16);
+      rect(rx + rw / 2 - 50, ry + rh - 30, 100, 35, 8);
+
+      fill(195, 170, 140);
+      rect(resource_pos.x - 120, resource_pos.y - 80, 240, 160, 20);
+
+      fill(90, 55, 32);
+      ellipse(resource_pos.x, resource_pos.y, 120, 120);
+      fill(255);
+      textSize(16);
+      text("Zona de Servicio", resource_pos.x, resource_pos.y);
+
+      draw_table(table_spots[1].x, table_spots[1].y, "Mesa A");
+      draw_table(table_spots[2].x, table_spots[2].y, "Mesa B");
+
+      if (mode === 1) {
+        draw_highlight_table(table_spots[0].x, table_spots[0].y, "Mesa Unica");
+      }
+
+      if (mode === 5) {
+        draw_vip_bar_area();
+      }
+
+      if (mode === 2) {
+        noFill();
+        stroke(255, 80, 80);
+        strokeWeight(4);
+        rect(resource_pos.x - 135, resource_pos.y - 95, 270, 190, 20);
+        textSize(18);
+        fill(255, 70, 70);
+        noStroke();
+        text("SIN CONTROL", resource_pos.x, resource_pos.y - 110);
+      }
+
+      if (mode === 4) {
+        fill(255, 70, 70);
+        textSize(18);
+        text("ENTRADA BLOQUEADA", rx + 120, ry + rh - 115);
       }
     }
 
+    function draw_table(x, y, label) {
+      noStroke();
+      fill(120, 75, 45);
+      ellipse(x, y, 70, 70);
+      fill(255, 245, 220);
+      ellipse(x, y, 42, 42);
+      fill(90, 60, 35);
+      textSize(12);
+      text(label, x, y + 52);
+    }
+
+    function draw_highlight_table(x, y, label) {
+      fill(255, 220, 100, 80);
+      ellipse(x, y, 95, 95);
+      draw_table(x, y, label);
+    }
+
+    function draw_vip_bar_area() {
+      fill(170, 130, 90);
+      rectMode(CENTER);
+      rect(vip_spot.x, vip_spot.y, 120, 70, 14);
+      rect(bar_spot.x, bar_spot.y, 120, 70, 14);
+
+      fill(255);
+      textSize(15);
+      text("Mesa VIP()", vip_spot.x, vip_spot.y);
+      text("Barra()", bar_spot.x, bar_spot.y);
+    }
+
+    function draw_waiting_area() {
+      fill(255);
+      textAlign(LEFT, CENTER);
+      textSize(20);
+      text("Fila de espera", width * 0.31, height * 0.14);
+
+      for (let i = 0; i < waiting_spots.length; i++) {
+        let x = waiting_spots[i].x;
+        let y = waiting_spots[i].y;
+
+        stroke(220, 180, 80);
+        strokeWeight(3);
+        line(x - 35, y + 30, x + 35, y + 30);
+
+        noStroke();
+        fill(255, 210, 80, 90);
+        ellipse(x, y + 30, 26, 10);
+      }
+
+      stroke(180, 40, 40);
+      strokeWeight(6);
+      line(width * 0.44, height * 0.30, width * 0.44, height * 0.70);
+      line(width * 0.46, height * 0.30, width * 0.46, height * 0.70);
+    }
+
+    function draw_info_panel() {
+      let panel_x = 30;
+      let panel_y = 30;
+      let panel_w = 340;
+      let panel_h = 280;
+
+      noStroke();
+      fill(20, 20, 28, 210);
+      rectMode(CORNER);
+      rect(panel_x, panel_y, panel_w, panel_h, 18);
+
+      fill(255, 220, 110);
+      textAlign(LEFT, TOP);
+      textSize(24);
+      text("Simulador de Concurrencia", panel_x + 18, panel_y + 16);
+
+      fill(220);
+      textSize(13);
+      text("Logica Multi-Hilo Traducida a p5.js Web", panel_x + 18, panel_y + 52);
+
+      let nombres = {
+        1: "Modo 1: Mutex",
+        2: "Modo 2: Race Condition",
+        3: "Modo 3: Semaforo",
+        4: "Modo 4: Deadlock",
+        5: "Modo 5: Monitor"
+      };
+
+      let explicaciones = {
+        1: "Solo 1 cliente puede usar el recurso. Los demas esperan.",
+        2: "Todos entran sin control. Hay caos y superposicion de datos.",
+        3: "Hasta 2 clientes pueden entrar al mismo tiempo (2 Mesas).",
+        4: "Los clientes quedan bloqueados en la entrada.",
+        5: "Acceso exclusivo, pero enrrutado a areas especificas."
+      };
+
+      fill(100, 220, 255);
+      textSize(20);
+      text(nombres[mode], panel_x + 18, panel_y + 88);
+
+      fill(245);
+      textSize(15);
+      text(explicaciones[mode], panel_x + 18, panel_y + 125, panel_w - 36, 80);
+
+      fill(180, 255, 180);
+      textSize(13);
+      text("Teclas: 1 Mutex | 2 Race | 3 Semaforo | 4 Deadlock | 5 Monitor", panel_x + 18, panel_y + 225, panel_w - 36, 50);
+    }
+
+    function draw_legend() {
+      let lx = 30;
+      let ly = height - 150;
+
+      noStroke();
+      fill(20, 20, 28, 210);
+      rect(lx, ly, 320, 110, 18);
+
+      fill(255);
+      textAlign(LEFT, TOP);
+      textSize(18);
+      text("Estados de los clientes", lx + 16, ly + 12);
+
+      draw_legend_item(lx + 20, ly + 48, color(70, 170, 255), "SEEKING");
+      draw_legend_item(lx + 20, ly + 76, color(255, 210, 70), "WAITING");
+      draw_legend_item(lx + 145, ly + 48, color(80, 230, 120), "CRITICAL");
+      draw_legend_item(lx + 145, ly + 76, color(180, 180, 180), "DONE");
+    }
+
+    function draw_legend_item(x, y, c, label) {
+      fill(c);
+      ellipse(x, y, 16, 16);
+      fill(255);
+      textSize(14);
+      textAlign(LEFT, CENTER);
+      text(label, x + 16, y);
+    }
+
+    // =========================================================
+    // INTERACCIÓN
+    // =========================================================
     function keyPressed() {
       if (key >= '1' && key <= '5') {
         mode = parseInt(key);
         for (let t of threads) {
-          t.x = t.startX;
-          t.y = t.startY;
-          t.state = "SEEKING";
+          t.reset();
         }
       }
     }
